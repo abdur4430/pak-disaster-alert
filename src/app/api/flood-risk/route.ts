@@ -5,6 +5,9 @@
  *
  * Fetches all data in parallel (rain reports, forecast, elevation, soil,
  * historical) and runs the flood prediction model.
+ *
+ * Fallback: When DATABASE_URL is not set, uses Open-Meteo Archive API
+ * for recent precipitation data instead of crowdsourced reports.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -52,7 +55,6 @@ async function fetchHistoricalAvg(
   lon: number
 ): Promise<number> {
   try {
-    // Get same 2-week period from 5 years ago
     const now = new Date();
     const avgPrecips: number[] = [];
 
@@ -121,6 +123,47 @@ async function fetchCurrentPrecipitation(
   }
 }
 
+/**
+ * Fallback: Fetch recent precipitation from Open-Meteo Archive
+ * when no database is available. Returns { total_mm, count }.
+ */
+async function fetchRecentPrecipFromArchive(
+  lat: number,
+  lon: number,
+  hours: number
+): Promise<{ total_mm: number; count: number }> {
+  try {
+    const end = new Date();
+    const start = new Date(end);
+    start.setHours(start.getHours() - hours);
+
+    const params = new URLSearchParams({
+      latitude: String(lat),
+      longitude: String(lon),
+      start_date: start.toISOString().split("T")[0],
+      end_date: end.toISOString().split("T")[0],
+      hourly: "precipitation",
+      timezone: "Asia/Karachi",
+    });
+
+    const res = await fetch(
+      `${FLOOD_API_URLS.archive}?${params.toString()}`,
+      { signal: AbortSignal.timeout(10_000) }
+    );
+    if (!res.ok) return { total_mm: 0, count: 0 };
+    const data = await res.json();
+    const precip: number[] = data.hourly?.precipitation ?? [];
+
+    const total_mm = precip.reduce((s, v) => s + (v || 0), 0);
+    // Count non-zero hours as "reports"
+    const count = precip.filter((v) => v > 0).length;
+
+    return { total_mm, count };
+  } catch {
+    return { total_mm: 0, count: 0 };
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
@@ -130,9 +173,41 @@ export async function GET(request: NextRequest) {
     const sql = getDb();
     const degOffset = CATCHMENT_RADIUS_KM / 111;
 
+    // Try to get rain reports from DB, fall back to Open-Meteo Archive
+    let rainReportsPromise: Promise<{ total_mm: number; count: number }>;
+
+    if (sql) {
+      rainReportsPromise = sql`
+        SELECT rainfall_mm FROM rain_reports
+        WHERE latitude BETWEEN ${lat - degOffset} AND ${lat + degOffset}
+          AND longitude BETWEEN ${lon - degOffset} AND ${lon + degOffset}
+          AND created_at > NOW() - INTERVAL '${FLOOD_TIME_WINDOWS.rainfall_lookback_hours} hours'
+      `
+        .then((rows) => ({
+          total_mm: (rows as Array<{ rainfall_mm: number }>).reduce(
+            (sum, r) => sum + (r.rainfall_mm || 0),
+            0
+          ),
+          count: rows.length,
+        }))
+        .catch(() =>
+          fetchRecentPrecipFromArchive(
+            lat,
+            lon,
+            FLOOD_TIME_WINDOWS.rainfall_lookback_hours
+          )
+        );
+    } else {
+      rainReportsPromise = fetchRecentPrecipFromArchive(
+        lat,
+        lon,
+        FLOOD_TIME_WINDOWS.rainfall_lookback_hours
+      );
+    }
+
     // Fetch everything in parallel
     const [
-      rainReports,
+      rainData,
       forecastRain,
       pointElevation,
       surroundingElevations,
@@ -140,21 +215,9 @@ export async function GET(request: NextRequest) {
       currentPrecip,
       historicalAvg,
     ] = await Promise.all([
-      // 1. Rain reports in catchment
-      sql`
-        SELECT rainfall_mm FROM rain_reports
-        WHERE latitude BETWEEN ${lat - degOffset} AND ${lat + degOffset}
-          AND longitude BETWEEN ${lon - degOffset} AND ${lon + degOffset}
-          AND created_at > NOW() - INTERVAL '${FLOOD_TIME_WINDOWS.rainfall_lookback_hours} hours'
-      `.catch(() => [] as Array<{ rainfall_mm: number }>),
-
-      // 2. Forecast rain
+      rainReportsPromise,
       fetchForecastRain(lat, lon),
-
-      // 3. Point elevation
       fetchElevation(lat, lon).catch(() => 500),
-
-      // 4. Surrounding elevations (8 compass points at ~5km)
       fetchElevationBatch([
         { lat: lat + 0.045, lon },
         { lat: lat - 0.045, lon },
@@ -165,21 +228,10 @@ export async function GET(request: NextRequest) {
         { lat: lat - 0.032, lon: lon + 0.032 },
         { lat: lat - 0.032, lon: lon - 0.032 },
       ]).catch(() => [] as number[]),
-
-      // 5. Soil composition
       fetchSoilComposition(lat, lon),
-
-      // 6. Current period precipitation
       fetchCurrentPrecipitation(lat, lon),
-
-      // 7. Historical average
       fetchHistoricalAvg(lat, lon),
     ]);
-
-    const accumulatedRainfall = (rainReports as Array<{ rainfall_mm: number }>).reduce(
-      (sum, r) => sum + (r.rainfall_mm || 0),
-      0
-    );
 
     const surroundingAvg =
       surroundingElevations.length > 0
@@ -190,8 +242,8 @@ export async function GET(request: NextRequest) {
     const prediction = computeFloodRisk({
       latitude: lat,
       longitude: lon,
-      accumulated_rainfall_mm: accumulatedRainfall,
-      report_count: (rainReports as unknown[]).length,
+      accumulated_rainfall_mm: rainData.total_mm,
+      report_count: rainData.count,
       forecast_rain_mm: forecastRain,
       elevation: pointElevation,
       surrounding_elevation_avg: surroundingAvg,
@@ -200,12 +252,14 @@ export async function GET(request: NextRequest) {
       historical_avg_mm: historicalAvg,
     });
 
-    // Save prediction to DB (fire and forget)
-    sql`
-      INSERT INTO flood_predictions (latitude, longitude, risk_level, risk_score, factors, report_count)
-      VALUES (${lat}, ${lon}, ${prediction.risk_level}, ${prediction.risk_score},
-              ${JSON.stringify(prediction.contributing_factors)}, ${prediction.report_count})
-    `.catch(() => {});
+    // Save prediction to DB if available (fire and forget)
+    if (sql) {
+      sql`
+        INSERT INTO flood_predictions (latitude, longitude, risk_level, risk_score, factors, report_count)
+        VALUES (${lat}, ${lon}, ${prediction.risk_level}, ${prediction.risk_score},
+                ${JSON.stringify(prediction.contributing_factors)}, ${prediction.report_count})
+      `.catch(() => {});
+    }
 
     return NextResponse.json(prediction);
   } catch (error) {

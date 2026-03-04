@@ -13,6 +13,16 @@ export async function GET() {
   try {
     const sql = getDb();
 
+    if (!sql) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "DATABASE_URL is not set. The app will use Open-Meteo API fallback mode. Set DATABASE_URL to enable database features.",
+        },
+        { status: 400 }
+      );
+    }
+
     // Create rain_reports table
     await sql`
       CREATE TABLE IF NOT EXISTS rain_reports (

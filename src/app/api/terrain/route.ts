@@ -3,8 +3,9 @@
  *
  * GET /api/terrain?lat=X&lon=Y
  *
- * Fetches elevation + soil data for a location. Results are cached in
- * the terrain_cache table, snapped to a grid resolution.
+ * Fetches elevation + soil data for a location. When DATABASE_URL is set,
+ * results are cached in the terrain_cache table. Otherwise, fetches
+ * directly from the free APIs every time.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -34,43 +35,51 @@ export async function GET(request: NextRequest) {
 
     const sql = getDb();
 
-    // Check cache first
-    const cached = await sql`
-      SELECT elevation, soil_clay, soil_sand, soil_silt, drainage_score
-      FROM terrain_cache
-      WHERE grid_lat = ${gridLat} AND grid_lon = ${gridLon}
-        AND fetched_at > NOW() - INTERVAL '30 days'
-      LIMIT 1
-    `;
+    // Check DB cache first (if available)
+    if (sql) {
+      try {
+        const cached = await sql`
+          SELECT elevation, soil_clay, soil_sand, soil_silt, drainage_score
+          FROM terrain_cache
+          WHERE grid_lat = ${gridLat} AND grid_lon = ${gridLon}
+            AND fetched_at > NOW() - INTERVAL '30 days'
+          LIMIT 1
+        `;
 
-    if (cached.length > 0) {
-      const row = cached[0];
-      const result: TerrainData = {
-        latitude: gridLat,
-        longitude: gridLon,
-        elevation: row.elevation as number,
-        soil_clay: row.soil_clay as number,
-        soil_sand: row.soil_sand as number,
-        soil_silt: row.soil_silt as number,
-        drainage_score: row.drainage_score as number,
-      };
-      return NextResponse.json(result);
+        if (cached.length > 0) {
+          const row = cached[0];
+          const result: TerrainData = {
+            latitude: gridLat,
+            longitude: gridLon,
+            elevation: row.elevation as number,
+            soil_clay: row.soil_clay as number,
+            soil_sand: row.soil_sand as number,
+            soil_silt: row.soil_silt as number,
+            drainage_score: row.drainage_score as number,
+          };
+          return NextResponse.json(result);
+        }
+      } catch (dbError) {
+        console.warn("[terrain] DB cache check failed, fetching fresh:", dbError);
+      }
     }
 
-    // Fetch fresh data in parallel
+    // Fetch fresh data from free APIs in parallel
     const [elevation, soil] = await Promise.all([
       fetchElevation(gridLat, gridLon).catch(() => 500),
       fetchSoilComposition(gridLat, gridLon),
     ]);
 
-    // Cache the result (upsert)
-    await sql`
-      INSERT INTO terrain_cache (grid_lat, grid_lon, elevation, soil_clay, soil_sand, soil_silt, drainage_score)
-      VALUES (${gridLat}, ${gridLon}, ${elevation}, ${soil.clay}, ${soil.sand}, ${soil.silt}, ${soil.drainage_score})
-      ON CONFLICT (grid_lat, grid_lon)
-      DO UPDATE SET elevation = ${elevation}, soil_clay = ${soil.clay}, soil_sand = ${soil.sand},
-                    soil_silt = ${soil.silt}, drainage_score = ${soil.drainage_score}, fetched_at = NOW()
-    `.catch(() => {});
+    // Cache the result in DB if available (fire and forget)
+    if (sql) {
+      sql`
+        INSERT INTO terrain_cache (grid_lat, grid_lon, elevation, soil_clay, soil_sand, soil_silt, drainage_score)
+        VALUES (${gridLat}, ${gridLon}, ${elevation}, ${soil.clay}, ${soil.sand}, ${soil.silt}, ${soil.drainage_score})
+        ON CONFLICT (grid_lat, grid_lon)
+        DO UPDATE SET elevation = ${elevation}, soil_clay = ${soil.clay}, soil_sand = ${soil.sand},
+                      soil_silt = ${soil.silt}, drainage_score = ${soil.drainage_score}, fetched_at = NOW()
+      `.catch(() => {});
+    }
 
     const result: TerrainData = {
       latitude: gridLat,
