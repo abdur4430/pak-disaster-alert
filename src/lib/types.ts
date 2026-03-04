@@ -105,3 +105,68 @@ export interface UserLocation {
   /** Unix timestamp in milliseconds when the position was acquired. */
   timestamp: number;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Flood Monitor types                                                */
+/* ------------------------------------------------------------------ */
+
+/** A crowdsourced rain measurement report. */
+export interface RainReport {
+  id: number;
+  latitude: number;
+  longitude: number;
+  /** Measured rainfall in millimeters. */
+  rainfall_mm: number;
+  /** Duration of rainfall observation in hours. */
+  duration_hours: number;
+  notes: string | null;
+  /** Elevation at the report location in meters. */
+  elevation: number | null;
+  /** Anonymous device identifier for deduplication. */
+  device_id: string;
+  created_at: string;
+}
+
+/** Input for submitting a new rain report. */
+export interface RainReportInput {
+  latitude: number;
+  longitude: number;
+  rainfall_mm: number;
+  duration_hours: number;
+  notes?: string;
+  device_id: string;
+}
+
+/** Risk level classification for flood predictions. */
+export type FloodRiskLevel = "low" | "moderate" | "high" | "severe" | "extreme";
+
+/** Breakdown of contributing factors to a flood prediction. */
+export interface FloodContributingFactors {
+  accumulated_rainfall: { score: number; detail: string };
+  forecast_rain: { score: number; detail: string };
+  elevation: { score: number; detail: string };
+  soil_drainage: { score: number; detail: string };
+  historical_pattern: { score: number; detail: string };
+}
+
+/** A computed flood risk prediction for a location. */
+export interface FloodPrediction {
+  latitude: number;
+  longitude: number;
+  risk_score: number;
+  risk_level: FloodRiskLevel;
+  contributing_factors: FloodContributingFactors;
+  report_count: number;
+  computed_at: string;
+}
+
+/** Elevation and soil data for a geographic point. */
+export interface TerrainData {
+  latitude: number;
+  longitude: number;
+  elevation: number;
+  soil_clay: number;
+  soil_sand: number;
+  soil_silt: number;
+  drainage_score: number;
+}

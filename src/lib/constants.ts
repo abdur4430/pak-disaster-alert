@@ -163,3 +163,52 @@ export const SEARCHABLE_LOCATIONS = KEY_CITIES.map(c => ({
   lon: c.lon,
   region: c.region,
 }));
+
+/* ------------------------------------------------------------------ */
+/*  Flood Monitor constants                                            */
+/* ------------------------------------------------------------------ */
+
+/** Flood risk level thresholds and display metadata. */
+export const FLOOD_RISK_LEVELS = [
+  { id: "low" as const, label: "Low", min: 0, max: 20, color: "#22C55E" },
+  { id: "moderate" as const, label: "Moderate", min: 20, max: 40, color: "#EAB308" },
+  { id: "high" as const, label: "High", min: 40, max: 60, color: "#F97316" },
+  { id: "severe" as const, label: "Severe", min: 60, max: 80, color: "#EF4444" },
+  { id: "extreme" as const, label: "Extreme", min: 80, max: 100, color: "#7C3AED" },
+] as const;
+
+/** Weights for each factor in the flood prediction model. */
+export const FLOOD_MODEL_WEIGHTS = {
+  accumulated_rainfall: 0.35,
+  forecast_rain: 0.25,
+  elevation: 0.20,
+  soil_drainage: 0.10,
+  historical_pattern: 0.10,
+} as const;
+
+/** Radius in km for aggregating rain reports in a catchment area. */
+export const CATCHMENT_RADIUS_KM = 10;
+
+/** Time windows for flood analysis. */
+export const FLOOD_TIME_WINDOWS = {
+  /** Hours to look back for accumulated rainfall reports. */
+  rainfall_lookback_hours: 72,
+  /** Hours to look ahead for forecast precipitation. */
+  forecast_hours: 48,
+} as const;
+
+/** Grid resolution for terrain caching (in decimal degrees). */
+export const TERRAIN_GRID_RESOLUTION = 0.01;
+
+/** External API URLs for flood monitoring. */
+export const FLOOD_API_URLS = {
+  elevation: "https://api.open-meteo.com/v1/elevation",
+  soilGrids: "https://rest.isric.org/soilgrids/v2.0/properties/query",
+  archive: "https://archive-api.open-meteo.com/v1/archive",
+} as const;
+
+/** Maximum rain reports per 24h per device. */
+export const MAX_REPORTS_PER_DEVICE_PER_DAY = 10;
+
+/** Auto-refresh interval for flood data in milliseconds. */
+export const FLOOD_REFRESH_INTERVAL_MS = 120_000;

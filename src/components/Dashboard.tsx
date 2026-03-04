@@ -10,6 +10,8 @@ import {
   BookOpen,
   Video,
   Image,
+  Droplets,
+  LayoutDashboard,
 } from 'lucide-react';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { useDisasters } from '@/hooks/useDisasters';
@@ -32,7 +34,9 @@ import DisasterMap from '@/components/DisasterMap';
 import VideoPanel from '@/components/VideoPanel';
 import PlacePreview from '@/components/PlacePreview';
 import DisasterHistory from '@/components/DisasterHistory';
+import FloodMonitor from '@/components/FloodMonitor';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 interface SelectedLocation {
   name: string;
@@ -53,6 +57,7 @@ export default function Dashboard() {
   const [selectedLocation, setSelectedLocation] =
     useState<SelectedLocation | null>(null);
   const [showFavorites, setShowFavorites] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   // Favorites
   const { favorites, addFavorite, removeFavorite, isFavorite } = useFavorites();
@@ -188,6 +193,34 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
+
+          {/* Tab navigation */}
+          <div className="mt-2">
+            <div className="flex gap-1">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  activeTab === 'dashboard'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}
+              >
+                <LayoutDashboard className="h-3.5 w-3.5" />
+                Dashboard
+              </button>
+              <button
+                onClick={() => setActiveTab('flood')}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  activeTab === 'flood'
+                    ? 'bg-blue-500/10 text-blue-400'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}
+              >
+                <Droplets className="h-3.5 w-3.5" />
+                Flood Monitor
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -221,87 +254,97 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ═══════════════ ROW 1: Map + Weather/FunFacts sidebar ═══════════════ */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-          <div className="xl:col-span-8">
-            <DisasterMap
-              disasters={disasters}
-              userLocation={userLocationForMap}
-              selectedLocation={selectedLocationForMap}
+        {/* ═══════════════ TAB: Dashboard ═══════════════ */}
+        {activeTab === 'dashboard' && (
+          <>
+            {/* ROW 1: Map + Weather/FunFacts sidebar */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-8">
+                <DisasterMap
+                  disasters={disasters}
+                  userLocation={userLocationForMap}
+                  selectedLocation={selectedLocationForMap}
+                />
+              </div>
+              <div className="xl:col-span-4 space-y-5">
+                <WeatherPanel weather={filteredWeather} loading={weatherLoading} />
+                <FunFacts cityName={selectedLocation?.name ?? null} />
+              </div>
+            </div>
+
+            {/* ROW 2: Place Preview + Video Panel */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-5">
+                <h2 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+                  <Image className="h-3.5 w-3.5" />
+                  Explore Location
+                </h2>
+                <PlacePreview placeName={selectedLocation?.name ?? null} />
+              </div>
+              <div className="xl:col-span-7">
+                <h2 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+                  <Video className="h-3.5 w-3.5" />
+                  Disaster News Videos
+                </h2>
+                <VideoPanel locationName={selectedLocation?.name} />
+              </div>
+            </div>
+
+            {/* ROW 3: Stats Cards */}
+            <StatsCards disasters={disasters} alerts={alerts} />
+
+            <Separator className="my-2" />
+
+            {/* ROW 4: Category Filter + Timeline */}
+            <CategoryFilter
+              activeCategory={selectedCategory}
+              onCategoryChange={setSelectedCategory}
+              disasterCounts={disasterCounts}
             />
-          </div>
-          <div className="xl:col-span-4 space-y-5">
-            <WeatherPanel weather={filteredWeather} loading={weatherLoading} />
-            <FunFacts cityName={selectedLocation?.name ?? null} />
-          </div>
-        </div>
+            <DisasterTimeline disasters={disasters} />
 
-        {/* ═══════════════ ROW 2: Place Preview + Video Panel ═══════════════ */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-          {/* Place images & info from Wikipedia */}
-          <div className="xl:col-span-5">
-            <h2 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-              <Image className="h-3.5 w-3.5" />
-              Explore Location
-            </h2>
-            <PlacePreview placeName={selectedLocation?.name ?? null} />
-          </div>
+            <Separator className="my-2" />
 
-          {/* YouTube videos */}
-          <div className="xl:col-span-7">
-            <h2 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-              <Video className="h-3.5 w-3.5" />
-              Disaster News Videos
-            </h2>
-            <VideoPanel locationName={selectedLocation?.name} />
-          </div>
-        </div>
+            {/* ROW 5: Disaster History */}
+            <div>
+              <h2 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+                <BookOpen className="h-3.5 w-3.5" />
+                Pakistan Disaster History
+              </h2>
+              <DisasterHistory />
+            </div>
 
-        {/* ═══════════════ ROW 3: Stats Cards ═══════════════ */}
-        <StatsCards disasters={disasters} alerts={alerts} />
+            <Separator className="my-2" />
 
-        <Separator className="my-2" />
+            {/* ROW 6: Live Disasters + News */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <h2 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+                  <Radio className="h-3.5 w-3.5" />
+                  Live Disaster Events
+                </h2>
+                <DisasterList
+                  disasters={disasters}
+                  onSelectDisaster={handleSelectDisaster}
+                />
+              </div>
+              <div>
+                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+                  &nbsp;
+                </h2>
+                <NewsPanel />
+              </div>
+            </div>
+          </>
+        )}
 
-        {/* ═══════════════ ROW 4: Category Filter + Timeline ═══════════════ */}
-        <CategoryFilter
-          activeCategory={selectedCategory}
-          onCategoryChange={setSelectedCategory}
-          disasterCounts={disasterCounts}
-        />
-        <DisasterTimeline disasters={disasters} />
-
-        <Separator className="my-2" />
-
-        {/* ═══════════════ ROW 5: Disaster History ═══════════════ */}
-        <div>
-          <h2 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-            <BookOpen className="h-3.5 w-3.5" />
-            Pakistan Disaster History
-          </h2>
-          <DisasterHistory />
-        </div>
-
-        <Separator className="my-2" />
-
-        {/* ═══════════════ ROW 6: Live Disasters + News ═══════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
-            <h2 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-              <Radio className="h-3.5 w-3.5" />
-              Live Disaster Events
-            </h2>
-            <DisasterList
-              disasters={disasters}
-              onSelectDisaster={handleSelectDisaster}
-            />
-          </div>
-          <div>
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-              &nbsp;
-            </h2>
-            <NewsPanel />
-          </div>
-        </div>
+        {/* ═══════════════ TAB: Flood Monitor ═══════════════ */}
+        {activeTab === 'flood' && (
+          <FloodMonitor
+            selectedLocation={selectedLocationForMap}
+            userLocation={userLocationForMap}
+          />
+        )}
       </main>
 
       {/* Footer */}
@@ -315,7 +358,7 @@ export default function Dashboard() {
               </span>
             </div>
             <p className="text-[10px] text-muted-foreground/60">
-              Data: USGS &middot; ReliefWeb &middot; GDACS &middot; NASA EONET &middot; Open-Meteo &middot; GDELT &middot; Wikipedia &middot; YouTube
+              Data: USGS &middot; ReliefWeb &middot; GDACS &middot; NASA EONET &middot; Open-Meteo &middot; GDELT &middot; Wikipedia &middot; YouTube &middot; ISRIC SoilGrids
             </p>
           </div>
         </div>
